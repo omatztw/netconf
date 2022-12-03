@@ -9,7 +9,8 @@ const (
 // exchange by the server.
 var DefaultCapabilities = []string{
 	"urn:ietf:params:netconf:base:1.0",
-	"urn:ietf:params:netconf:base:1.1",
+	// "urn:ietf:params:netconf:base:1.1",
+	// "urn:ietf:params:netconf:capability:notification:1.0",
 
 	// XXX: these seems like server capabilities and i don't see why
 	// a client would need to send them

@@ -39,10 +39,12 @@ type Session struct {
 	clientCaps capabilitySet
 	serverCaps capabilitySet
 
-	mu      sync.Mutex
-	seq     uint64
-	reqs    map[uint64]chan RPCReplyMsg
-	closing bool
+	mu        sync.Mutex
+	seq       uint64
+	reqs      map[uint64]chan RPCReplyMsg
+	notifCh   chan NotificationMsg
+	listeners map[string]NotificationListener
+	closing   bool
 }
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session {
@@ -58,6 +60,9 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 		tr:         transport,
 		clientCaps: newCapabilitySet(cfg.capabilities...),
 		reqs:       make(map[uint64]chan RPCReplyMsg),
+		listeners:  make(map[string]NotificationListener),
+		// not sure how many caps are suitable.
+		notifCh: make(chan NotificationMsg, 10),
 	}
 	return s
 }
@@ -74,6 +79,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 	}
 
 	go s.recv()
+	go s.listen()
 	return s, nil
 }
 
@@ -174,15 +180,17 @@ Loop:
 		}
 
 		const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
+		const notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
 
 		switch root.Name {
-		/* Not supported yet. Will implement post beta release
-		case "notification":
+		case xml.Name{Space: notifNamespace, Local: "notification"}:
 			var notif NotificationMsg
 			if err := dec.DecodeElement(&notif, root); err != nil {
 				log.Printf("failed to decode notification message: %v", err)
+				continue Loop
 			}
-		*/
+			s.notifCh <- notif
+
 		case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:
 			var reply RPCReplyMsg
 			if err := dec.DecodeElement(&reply, root); err != nil {
@@ -259,6 +267,30 @@ func (s *Session) send(msg *RPCMsg) (chan RPCReplyMsg, error) {
 	s.reqs[msg.MessageID] = ch
 
 	return ch, nil
+}
+
+func (s *Session) listen() {
+	for msg := range s.notifCh {
+		var wg sync.WaitGroup
+		for _, listener := range s.listeners {
+			wg.Add(1)
+			// Handle notification message parallelly
+			go func(l NotificationListener) {
+				defer wg.Done()
+				l.Do(msg)
+			}(listener)
+		}
+		// Wait for all listeners' job done
+		wg.Wait()
+	}
+}
+
+func (s *Session) AddNotificationListener(name string, listener NotificationListener) {
+	s.listeners[name] = listener
+}
+
+func (s *Session) RemoveNotificationListener(name string) {
+	delete(s.listeners, name)
 }
 
 // Do issues a low level RPC call taking in a full RPCMsg and returning the full

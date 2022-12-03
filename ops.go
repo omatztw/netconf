@@ -337,8 +337,39 @@ func (s *Session) Unlock(ctx context.Context, target Datastore) error {
 	return s.Call(ctx, &req, &resp)
 }
 
-func (s *Session) Get(ctx context.Context /* filter */) error {
-	panic("unimplemented")
+const (
+	Subtree string = "subtree"
+	XPath   string = "XPath"
+)
+
+type getReq struct {
+	XMLName xml.Name `xml:"get"`
+	Filter  Filter
+}
+
+type Filter struct {
+	XMLName  xml.Name `xml:"filter"`
+	Type     string   `xml:"type,attr"`
+	InnerXML []byte   `xml:",innerxml"`
+}
+
+type getResp struct {
+	XMLName xml.Name `xml:"data"`
+	Data    []byte   `xml:",innerxml"`
+}
+
+func (s *Session) Get(ctx context.Context, filter Filter) ([]byte, error) {
+	// panic("unimplemented")
+	req := getReq{
+		Filter: filter,
+	}
+	var resp getResp
+
+	if err := s.Call(ctx, &req, &resp); err != nil {
+		return nil, err
+	}
+
+	return resp.Data, nil
 }
 
 type killSessionReq struct {
@@ -365,6 +396,20 @@ func (s *Session) Validate(ctx context.Context, source interface{}) error {
 		Source: source,
 	}
 
+	var resp OKResp
+	return s.Call(ctx, &req, &resp)
+}
+
+type subscribeReq struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 create-subscription"`
+	Strem   string   `xml:"strem"`
+}
+
+func (s *Session) CreateSubscription(ctx context.Context, stream string /* filter */) error {
+
+	req := subscribeReq{
+		Strem: stream,
+	}
 	var resp OKResp
 	return s.Call(ctx, &req, &resp)
 }
